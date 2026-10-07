@@ -60,6 +60,16 @@ export const INITIAL_SECTORS: Sector[] = [
     floorArea: { minX: -24, maxX: 12, minZ: 10, maxZ: 26 },
     supervisor: 'Mestre Waldir Fonseca',
     targetOee: 82.0
+  },
+  {
+    id: 'bihler-producao',
+    name: 'Linha Bihler · Estampagem Contínua',
+    code: 'BIH-07',
+    description: 'Linha automatizada de conformação e estampagem radial Bihler com desbobinador de fita de aço, esteira de ejeção e acondicionamento contínuo em caixas.',
+    color: '#059669', // Reseda Industrial Green
+    floorArea: { minX: 14, maxX: 34, minZ: 10, maxZ: 26 },
+    supervisor: 'Eng. Guilherme K. Bihler (Especialista de Processo)',
+    targetOee: 92.0
   }
 ];
 
@@ -988,6 +998,74 @@ export const INITIAL_MACHINES: Machine[] = [
       nextPreventiveDate: '15/10/2026',
       lubricationLevel: 55,
       toolWearPercent: 70
+    }
+  },
+  // --- SETOR: LINHA BIHLER · ESTAMPAGEM CONTÍNUA & DESBOBINADOR ---
+  {
+    id: 'M14',
+    code: 'M14',
+    name: 'Máquina 14 - Bihler GRM-80 Linha Contínua & Desbobinador',
+    model: 'Bihler GRM-80 Radial Multi-Slide Automático',
+    manufacturer: 'Otto Bihler Maschinenfabrik GmbH',
+    year: 2023,
+    category: 'bihler-linha-pecas',
+    sectorId: 'bihler-producao',
+    sectorName: 'Linha Bihler · Estampagem Contínua',
+    status: 'running',
+    connectionStatus: 'online',
+    position: { x: 24, y: 0, z: 18 },
+    rotationY: 0,
+    dimensions: { width: 5.6, height: 3.4, depth: 4.2 },
+    operator: { name: 'Lucas Valadão', badge: 'OP-5520', shift: '1º Turno (06h - 14h)' },
+    currentOrder: {
+      orderNumber: 'OP-77290',
+      productCode: 'BIH-CLP28',
+      productName: 'Presilha Elástica Automotiva Bihler Inox 301',
+      plannedQty: 30000,
+      producedQty: 24850,
+      scrapQty: 62,
+      batchNumber: 'L26-BIH08',
+      standardCycleTimeSec: 0.71
+    },
+    telemetry: {
+      temperature: 52.8,
+      vibration: 1.8,
+      pressure: 6.5,
+      motorCurrent: 18.2,
+      cycleTimeSec: 0.70,
+      piecesPerMinute: 85.7,
+      voltage24VActive: true,
+      esp32: {
+        ip: '192.168.10.114',
+        mac: 'C8:2E:18:4A:11:14',
+        firmwareVersion: 'SFioT-v2.4.1-OPTO',
+        rssi: -54,
+        uptimeHours: 210.4,
+        pulseCounterRaw: 24912,
+        optocouplerProtected: true,
+        debounceThresholdMs: 35,
+        lastPingMs: 38
+      }
+    },
+    kpi: {
+      oee: 92.4,
+      availability: 96.2,
+      performance: 98.0,
+      quality: 98.3,
+      gpm: 85.7,
+      uptimeSeconds: 27800,
+      downtimeSeconds: 1100,
+      scrapRate: 0.25
+    },
+    downtimeHistory: [
+      { id: 'dt-14-1', reason: 'Troca de bobina de fita de aço inox', category: 'operacional', startedAt: '09:20', durationMinutes: 10, resolved: true }
+    ],
+    alerts: [],
+    maintenance: {
+      lastPreventiveDate: '22/09/2026',
+      nextPreventiveDate: '22/11/2026',
+      lubricationLevel: 95,
+      toolWearPercent: 18
     }
   }
 ];

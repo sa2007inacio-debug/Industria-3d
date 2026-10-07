@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Machine, Sector, FactoryRoute } from '../../types/industrial';
 import { FactorySceneBuilder } from './FactorySceneBuilder';
+import { FactoryMiniMap } from './FactoryMiniMap';
 import {
   Compass,
   Maximize2,
@@ -1052,31 +1053,52 @@ export const FactoryCanvas: React.FC<FactoryCanvasProps> = ({
         </div>
       )}
 
-      {/* Active Navigation Route Banner */}
-      {navigationRoute && !isCleanMode && (
-        <div className="absolute top-16 right-4 z-20 max-w-xs bg-slate-900/95 backdrop-blur-md border border-cyan-500/50 rounded-xl p-3 shadow-2xl animate-in fade-in slide-in-from-top-4 duration-200">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-1.5 text-cyan-400 font-bold text-xs uppercase">
-              <Navigation className="w-4 h-4 animate-pulse" />
-              <span>Rota Ativa</span>
+      {/* Right Side Overlays: Factory Mini-Map & Navigation Route */}
+      {!isCleanMode && (
+        <div className="absolute top-16 right-4 z-20 flex flex-col items-end gap-2.5 max-w-xs">
+          {/* 1. Factory Floor Mini-Map with live position and vision cone */}
+          <FactoryMiniMap
+            sectors={sectors}
+            machines={machines}
+            robotPosRef={robotPosRef}
+            camYawRef={camYawRef}
+            navigationRoute={navigationRoute}
+            onNavigateToPoint={(wx, wz) => {
+              if (perspectiveRef.current === 'orbit') {
+                switchPerspective('fpv');
+              }
+              walkTargetPosRef.current = new THREE.Vector3(wx, 0, wz);
+            }}
+            onSelectMachine={onSelectMachine}
+          />
+
+          {/* 2. Active Navigation Route Banner (Indoor GPS) */}
+          {navigationRoute && (
+            <div className="w-full bg-slate-900/95 backdrop-blur-md border border-cyan-500/50 rounded-xl p-3 shadow-2xl animate-in fade-in slide-in-from-top-4 duration-200">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-cyan-400 font-bold text-xs uppercase">
+                  <Navigation className="w-4 h-4 animate-pulse" />
+                  <span>Rota Ativa</span>
+                </div>
+                <button
+                  onClick={onClearRoute}
+                  className="text-[10px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700"
+                >
+                  Encerrar
+                </button>
+              </div>
+              <div className="mt-1 text-xs font-semibold text-white truncate">
+                {navigationRoute.destinationMachineName}
+              </div>
+              <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-300">
+                <span className="font-mono text-cyan-300 font-bold">
+                  {navigationRoute.totalDistanceMeters}m
+                </span>
+                <span>·</span>
+                <span>Aprox. {navigationRoute.estimatedWalkTimeSec}s</span>
+              </div>
             </div>
-            <button
-              onClick={onClearRoute}
-              className="text-[10px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-800"
-            >
-              Encerrar
-            </button>
-          </div>
-          <div className="mt-1 text-xs font-semibold text-white truncate">
-            {navigationRoute.destinationMachineName}
-          </div>
-          <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-300">
-            <span className="font-mono text-cyan-300 font-bold">
-              {navigationRoute.totalDistanceMeters}m
-            </span>
-            <span>·</span>
-            <span>Aprox. {navigationRoute.estimatedWalkTimeSec}s</span>
-          </div>
+          )}
         </div>
       )}
 

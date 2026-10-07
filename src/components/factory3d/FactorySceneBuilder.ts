@@ -5,6 +5,20 @@ export interface SceneObjectsMap {
   machineMeshes: Map<string, THREE.Group>;
   machineAndons: Map<string, { green: THREE.Mesh; amber: THREE.Mesh; red: THREE.Mesh; pointLight: THREE.PointLight }>;
   animatedParts: Map<string, { type: string; object: THREE.Object3D; basePos: THREE.Vector3; speed: number }>;
+  flowingPieces: Array<{
+    mesh: THREE.Mesh;
+    phase: number;
+    machineId: string;
+    chuteStart: THREE.Vector3;
+    chuteLip: THREE.Vector3;
+    boxDrop: THREE.Vector3;
+  }>;
+  tabletScreens: Map<string, {
+    canvas: HTMLCanvasElement;
+    texture: THREE.CanvasTexture;
+    ctx: CanvasRenderingContext2D;
+    machine: Machine;
+  }>;
   routeLineGroup: THREE.Group;
   sectorGroup: THREE.Group;
   labelsGroup: THREE.Group;
@@ -27,6 +41,8 @@ export class FactorySceneBuilder {
     machineMeshes: new Map(),
     machineAndons: new Map(),
     animatedParts: new Map(),
+    flowingPieces: [],
+    tabletScreens: new Map(),
     routeLineGroup: new THREE.Group(),
     sectorGroup: new THREE.Group(),
     labelsGroup: new THREE.Group(),
@@ -261,6 +277,9 @@ export class FactorySceneBuilder {
 
       // Build model based on category
       switch (machine.category) {
+        case 'bihler-linha-pecas':
+          this.buildBihlerProductionLineModel(machineGroup, chassisMat, panelMat, metalMat, machine);
+          break;
         case 'bihler-combinada':
           this.buildBihlerModel(machineGroup, chassisMat, panelMat, metalMat, machine);
           break;
@@ -295,6 +314,744 @@ export class FactorySceneBuilder {
     });
 
     return this.objectsMap;
+  }
+
+  // --- MODEL: LINHA BIHLER · ESTAMPAGEM CONTÍNUA, DESBOBINADOR, FLUXO DE PEÇAS & TABLET HMI ---
+  private buildBihlerProductionLineModel(
+    group: THREE.Group,
+    _chassisMat: THREE.Material,
+    _panelMat: THREE.Material,
+    metalMat: THREE.Material,
+    machine: Machine
+  ): void {
+    // 0. High-Quality Dedicated Materials for Bihler Stamping Line
+    const bihlerGreenMat = new THREE.MeshStandardMaterial({
+      color: 0x1e3a2f, // Reseda Industrial Green (RAL 6011 Classic Bihler)
+      metalness: 0.35,
+      roughness: 0.45
+    });
+
+    const bihlerSlateMat = new THREE.MeshStandardMaterial({
+      color: 0x0f172a, // Deep industrial slate
+      metalness: 0.5,
+      roughness: 0.5
+    });
+
+    const steelStripMat = new THREE.MeshStandardMaterial({
+      color: 0xcfd8dc, // Shiny cold-rolled stainless steel
+      metalness: 0.92,
+      roughness: 0.2
+    });
+
+    const shinyChromeMat = new THREE.MeshStandardMaterial({
+      color: 0xf8fafc,
+      metalness: 0.95,
+      roughness: 0.12
+    });
+
+    const safetyYellowMat = new THREE.MeshStandardMaterial({
+      color: 0xeab308, // Safety Yellow
+      metalness: 0.2,
+      roughness: 0.4
+    });
+
+    const transparentGlassMat = new THREE.MeshPhysicalMaterial({
+      color: 0x67e8f9,
+      metalness: 0.1,
+      roughness: 0.08,
+      transmission: 0.8,
+      transparent: true,
+      opacity: 0.35
+    });
+
+    // 1. SAFETY FLOOR PERIMETER (Faixas zebradas e guarda-corpos do setor)
+    // 1a. Hazard floor striping under uncoiler
+    const uncoilerHatch = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.2, 2.6),
+      new THREE.MeshStandardMaterial({ color: 0xca8a04, roughness: 0.7 })
+    );
+    uncoilerHatch.rotation.x = -Math.PI / 2;
+    uncoilerHatch.position.set(-3.6, 0.015, 0);
+    group.add(uncoilerHatch);
+
+    // 1b. Hazard floor striping under collection pallet
+    const palletHatch = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.2, 2.0),
+      new THREE.MeshStandardMaterial({ color: 0xca8a04, roughness: 0.7 })
+    );
+    palletHatch.rotation.x = -Math.PI / 2;
+    palletHatch.position.set(3.4, 0.015, 0.3);
+    group.add(palletHatch);
+
+    // 1c. Yellow tubular safety guardrail around uncoiler perimeter
+    const railMat = safetyYellowMat;
+    const postGeo = new THREE.CylinderGeometry(0.035, 0.035, 1.1, 16);
+    const railPosts = [
+      new THREE.Vector3(-5.3, 0.55, -1.3),
+      new THREE.Vector3(-5.3, 0.55, 1.3),
+      new THREE.Vector3(-2.2, 0.55, -1.3),
+      new THREE.Vector3(-2.2, 0.55, 1.3)
+    ];
+    railPosts.forEach((pos) => {
+      const post = new THREE.Mesh(postGeo, railMat);
+      post.position.copy(pos);
+      group.add(post);
+    });
+
+    // Horizontal rails
+    const rearRail = new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.04, 0.04), railMat);
+    rearRail.position.set(-3.75, 1.05, -1.3);
+    group.add(rearRail);
+
+    const sideRail = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 2.6), railMat);
+    sideRail.position.set(-5.3, 1.05, 0);
+    group.add(sideRail);
+
+    // =========================================================================
+    // 2. DESBOBINADOR DE FITA DE AÇO (HEAVY INDUSTRIAL DECOILER / UNCOILER REEL)
+    // =========================================================================
+    const uncoilerGroup = new THREE.Group();
+    uncoilerGroup.position.set(-3.6, 0, 0);
+
+    // Base pedestal casting
+    const uncoilerBase = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.9, 1.4), bihlerSlateMat);
+    uncoilerBase.position.y = 0.45;
+    uncoilerBase.castShadow = true;
+    uncoilerGroup.add(uncoilerBase);
+
+    // Drive motor & reduction gearbox on rear
+    const motorBox = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.65, 0.6), bihlerGreenMat);
+    motorBox.position.set(0, 0.75, -0.85);
+    uncoilerGroup.add(motorBox);
+
+    // Spindle support upright column
+    const spindleUpright = new THREE.Mesh(new THREE.BoxGeometry(0.48, 1.25, 0.48), metalMat);
+    spindleUpright.position.set(0, 1.4, 0);
+    spindleUpright.castShadow = true;
+    uncoilerGroup.add(spindleUpright);
+
+    // Horizontal spindle shaft
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.8, 24), metalMat);
+    shaft.rotation.x = Math.PI / 2;
+    shaft.position.set(0, 1.65, 0.05);
+    uncoilerGroup.add(shaft);
+
+    // ROTATING REEL ASSEMBLY (Bobina de aço + Pratos de guia laterais)
+    const reelRotatingGroup = new THREE.Group();
+    reelRotatingGroup.position.set(0, 1.65, 0.05);
+
+    // Main steel coil (Bobina pesada de fita de aço inox)
+    const coilMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.85, 0.85, 0.34, 36),
+      steelStripMat
+    );
+    coilMesh.rotation.x = Math.PI / 2;
+    coilMesh.castShadow = true;
+    reelRotatingGroup.add(coilMesh);
+
+    // Inner bronze mandrel wedges
+    const innerMandrel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.35, 0.35, 0.36, 24),
+      new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.8, roughness: 0.3 })
+    );
+    innerMandrel.rotation.x = Math.PI / 2;
+    reelRotatingGroup.add(innerMandrel);
+
+    // Lateral containment disks with spokes (Pratos de guia lateral com raios)
+    for (const zOffset of [-0.2, 0.2]) {
+      const diskGeo = new THREE.CylinderGeometry(1.15, 1.15, 0.02, 32);
+      const disk = new THREE.Mesh(diskGeo, metalMat);
+      disk.rotation.x = Math.PI / 2;
+      disk.position.z = zOffset;
+      reelRotatingGroup.add(disk);
+
+      // Contrast radial spokes
+      for (let s = 0; s < 4; s++) {
+        const spoke = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.06, 0.025), bihlerSlateMat);
+        spoke.rotation.z = (s * Math.PI) / 4;
+        spoke.position.z = zOffset;
+        reelRotatingGroup.add(spoke);
+      }
+    }
+
+    uncoilerGroup.add(reelRotatingGroup);
+    group.add(uncoilerGroup);
+
+    // Animate coil reel continuous wheel rotation around its Z axis when machine is running
+    this.objectsMap.animatedParts.set(`${machine.id}-decoiler-reel`, {
+      type: 'rotate-z-inv',
+      object: reelRotatingGroup,
+      basePos: reelRotatingGroup.position.clone(),
+      speed: 0.9
+    });
+
+    // Strip straightener unit (Endireitador de 7 roletes de precisão)
+    const straightenerGroup = new THREE.Group();
+    straightenerGroup.position.set(-1.95, 1.4, 0.05);
+
+    const straightenerFrame = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.5, 0.45), bihlerSlateMat);
+    straightenerFrame.position.y = 0.25;
+    straightenerGroup.add(straightenerFrame);
+
+    // 7 horizontal rollers
+    for (let r = 0; r < 5; r++) {
+      const roller = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.38, 16), shinyChromeMat);
+      roller.rotation.x = Math.PI / 2;
+      roller.position.set(-0.25 + r * 0.12, 0.22 + (r % 2 === 0 ? 0.05 : -0.05), 0);
+      straightenerGroup.add(roller);
+    }
+
+    // Top knurled adjustment handwheels
+    for (let h = 0; h < 2; h++) {
+      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.03, 16), metalMat);
+      wheel.position.set(-0.15 + h * 0.3, 0.55, 0);
+      straightenerGroup.add(wheel);
+    }
+
+    group.add(straightenerGroup);
+
+    // Dancer loop tension arm (Braço sensor bailarim com rolete)
+    const dancerArm = new THREE.Group();
+    dancerArm.position.set(-2.8, 1.5, 0.05);
+
+    const dancerBar = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.55, 0.04), safetyYellowMat);
+    dancerBar.position.y = -0.25;
+    dancerArm.add(dancerBar);
+
+    const dancerRoller = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.36, 16), shinyChromeMat);
+    dancerRoller.rotation.x = Math.PI / 2;
+    dancerRoller.position.y = -0.52;
+    dancerArm.add(dancerRoller);
+    group.add(dancerArm);
+
+    // Subtle tension loop oscillation on dancer arm
+    this.objectsMap.animatedParts.set(`${machine.id}-dancer`, {
+      type: 'vibrate-y',
+      object: dancerArm,
+      basePos: dancerArm.position.clone(),
+      speed: 1.0
+    });
+
+    // Continuous steel strip (Fita de aço estirada alimentando a estamparia)
+    // Curva descendo do topo da bobina, passando pelo laço e entrando na máquina
+    const stripCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-3.6, 2.5, 0.05),
+      new THREE.Vector3(-3.1, 1.8, 0.05),
+      new THREE.Vector3(-2.8, 1.05, 0.05), // Laço / folga
+      new THREE.Vector3(-2.2, 1.45, 0.05),
+      new THREE.Vector3(-1.6, 1.48, 0.05), // Entrada do ferramental
+      new THREE.Vector3(-0.9, 1.48, 0.05)
+    ]);
+    const stripGeo = new THREE.TubeGeometry(stripCurve, 32, 0.025, 8, false);
+    const stripMesh = new THREE.Mesh(stripGeo, steelStripMat);
+    group.add(stripMesh);
+
+    // =========================================================================
+    // 3. MÁQUINA BIHLER GRM-80 (PRENSA MULTI-SLIDE RADIAL & CABINE DE PROTEÇÃO)
+    // =========================================================================
+    // Base casting in classic Reseda Green
+    const machineBase = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.95, 2.8), bihlerGreenMat);
+    machineBase.position.y = 0.475;
+    machineBase.castShadow = true;
+    machineBase.receiveShadow = true;
+    group.add(machineBase);
+
+    // Upper steel bed plate
+    const bedPlate = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.12, 3.0), bihlerSlateMat);
+    bedPlate.position.y = 1.01;
+    group.add(bedPlate);
+
+    // Soundproofing & Safety Enclosure Cabin (Cabine acústica com janelas de policarbonato)
+    const cabinFrameGroup = new THREE.Group();
+    cabinFrameGroup.position.set(0, 1.07, 0);
+
+    // 4 Corner structural extruded aluminum pillars
+    const cornerPillars = [
+      new THREE.Vector3(-1.75, 1.0, -1.35),
+      new THREE.Vector3(-1.75, 1.0, 1.35),
+      new THREE.Vector3(1.75, 1.0, -1.35),
+      new THREE.Vector3(1.75, 1.0, 1.35)
+    ];
+    cornerPillars.forEach((p) => {
+      const col = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.0, 0.12), metalMat);
+      col.position.copy(p);
+      cabinFrameGroup.add(col);
+    });
+
+    // Roof enclosure with exhaust ventilation hood
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(3.7, 0.2, 2.9), bihlerGreenMat);
+    roof.position.y = 2.05;
+    cabinFrameGroup.add(roof);
+
+    const ventHood = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 0.4, 24), bihlerSlateMat);
+    ventHood.position.set(0, 2.3, 0);
+    cabinFrameGroup.add(ventHood);
+
+    // Front panoramic acrylic viewing window
+    const frontWindow = new THREE.Mesh(new THREE.PlaneGeometry(3.1, 1.6), transparentGlassMat);
+    frontWindow.position.set(0, 1.05, 1.36);
+    cabinFrameGroup.add(frontWindow);
+
+    // Sliding door handles in safety yellow
+    for (const hx of [-0.3, 0.3]) {
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.4, 12), safetyYellowMat);
+      handle.position.set(hx, 1.05, 1.39);
+      cabinFrameGroup.add(handle);
+    }
+
+    // Side windows
+    const leftWindow = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 1.6), transparentGlassMat);
+    leftWindow.rotation.y = Math.PI / 2;
+    leftWindow.position.set(-1.76, 1.05, 0);
+    cabinFrameGroup.add(leftWindow);
+
+    const rightWindow = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 1.6), transparentGlassMat);
+    rightWindow.rotation.y = -Math.PI / 2;
+    rightWindow.position.set(1.76, 1.05, 0);
+    cabinFrameGroup.add(rightWindow);
+
+    group.add(cabinFrameGroup);
+
+    // --- INTERIOR TOOLING ZONE (DISCO RADIAL & UNIDADES DE CONFORMAÇÃO) ---
+    // Central radial tooling faceplate (Disco montado verticalmente)
+    const faceplate = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.15, 1.15, 0.2, 32),
+      metalMat
+    );
+    faceplate.rotation.x = Math.PI / 2;
+    faceplate.position.set(0, 2.05, 0.1);
+    faceplate.castShadow = true;
+    group.add(faceplate);
+
+    // 4 Radial multi-slide units arranged around the center
+    for (let i = 0; i < 4; i++) {
+      const angle = (i * Math.PI) / 2 + Math.PI / 4;
+      const slide = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.75, 0.3), bihlerSlateMat);
+      slide.position.set(Math.cos(angle) * 0.95, 2.05 + Math.sin(angle) * 0.95, 0.25);
+      slide.rotation.z = angle;
+      group.add(slide);
+
+      const piston = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.45, 16), shinyChromeMat);
+      piston.position.set(Math.cos(angle) * 0.7, 2.05 + Math.sin(angle) * 0.7, 0.25);
+      piston.rotation.z = angle + Math.PI / 2;
+      group.add(piston);
+    }
+
+    // Reciprocating central punch tool block (Punção superior móvel)
+    const punchTool = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.48, 0.38), shinyChromeMat);
+    punchTool.position.set(0, 1.95, 0.3);
+    punchTool.castShadow = true;
+    group.add(punchTool);
+
+    // High-speed stamping stroke animation
+    this.objectsMap.animatedParts.set(`${machine.id}-punch`, {
+      type: 'stroke-y',
+      object: punchTool,
+      basePos: punchTool.position.clone(),
+      speed: 2.8
+    });
+
+    // Interior cool white work spotlight (Iluminação interna da cabine)
+    const interiorLight = new THREE.PointLight(0xffffff, 2.8, 5.5);
+    interiorLight.position.set(0, 2.8, 0.6);
+    group.add(interiorLight);
+
+    // Emergency stop mushroom pushbuttons with yellow collars
+    for (const ex of [-1.75, 1.75]) {
+      const eCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.02, 16), safetyYellowMat);
+      eCollar.position.set(ex, 1.45, 1.42);
+      eCollar.rotation.x = Math.PI / 2;
+      group.add(eCollar);
+
+      const eBtn = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.04, 0.04, 0.03, 16),
+        new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.3 })
+      );
+      eBtn.position.set(ex, 1.45, 1.44);
+      eBtn.rotation.x = Math.PI / 2;
+      group.add(eBtn);
+    }
+
+    // =========================================================================
+    // 4. CALHA DE SAÍDA & CAIXA COLETORA DE PEÇAS (EJECTION CHUTE & TOTE BOX)
+    // =========================================================================
+    // Incline stainless steel ejection chute extending out the right side of the machine
+    const chuteGroup = new THREE.Group();
+    chuteGroup.position.set(1.7, 1.15, 0.25);
+
+    // Incline angle: descending ~30 degrees towards +X
+    const chuteIncline = -0.32;
+    const chuteBed = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.03, 0.42), shinyChromeMat);
+    chuteBed.rotation.z = chuteIncline;
+    chuteBed.position.set(0.65, -0.22, 0);
+    chuteGroup.add(chuteBed);
+
+    // Chute side retention walls
+    for (const zw of [-0.22, 0.22]) {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.12, 0.02), shinyChromeMat);
+      wall.rotation.z = chuteIncline;
+      wall.position.set(0.65, -0.18, zw);
+      chuteGroup.add(wall);
+    }
+
+    // Support strut under chute lip
+    const chuteLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.7, 12), metalMat);
+    chuteLeg.position.set(1.45, -0.52, 0);
+    chuteGroup.add(chuteLeg);
+
+    group.add(chuteGroup);
+
+    // Industrial Wooden EUR-Pallet under the collection box
+    const palletGroup = new THREE.Group();
+    palletGroup.position.set(3.4, 0.07, 0.25);
+
+    const palletWoodMat = new THREE.MeshStandardMaterial({
+      color: 0xb45309, // Pine wood color
+      roughness: 0.85
+    });
+
+    // Top slats
+    for (let s = 0; s < 5; s++) {
+      const slat = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.025, 0.15), palletWoodMat);
+      slat.position.set(0, 0.05, -0.36 + s * 0.18);
+      palletGroup.add(slat);
+    }
+    // Cross blocks
+    for (let b = 0; b < 3; b++) {
+      const block = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.08, 0.1), palletWoodMat);
+      block.position.set(0, -0.01, -0.32 + b * 0.32);
+      palletGroup.add(block);
+    }
+    group.add(palletGroup);
+
+    // Industrial Blue Euro-KLT Collection Box (Caixa plástica de contenção de peças)
+    const boxGroup = new THREE.Group();
+    boxGroup.position.set(3.4, 0.38, 0.25);
+
+    const kltBlueMat = new THREE.MeshStandardMaterial({
+      color: 0x0284c7, // Heavy-duty industrial polypropylene blue
+      roughness: 0.45,
+      metalness: 0.1
+    });
+
+    // Box outer base & walls
+    const boxBottom = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.04, 0.65), kltBlueMat);
+    boxBottom.position.y = -0.18;
+    boxGroup.add(boxBottom);
+
+    // 4 Walls
+    const wallFront = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.42, 0.04), kltBlueMat);
+    wallFront.position.set(0, 0.03, 0.31);
+    boxGroup.add(wallFront);
+
+    const wallBack = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.42, 0.04), kltBlueMat);
+    wallBack.position.set(0, 0.03, -0.31);
+    boxGroup.add(wallBack);
+
+    const wallLeft = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.42, 0.58), kltBlueMat);
+    wallLeft.position.set(-0.46, 0.03, 0);
+    boxGroup.add(wallLeft);
+
+    const wallRight = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.42, 0.58), kltBlueMat);
+    wallRight.position.set(0.46, 0.03, 0);
+    boxGroup.add(wallRight);
+
+    // External reinforcement ribs
+    for (let r = -0.35; r <= 0.35; r += 0.22) {
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.38, 0.03), kltBlueMat);
+      rib.position.set(r, 0.03, 0.33);
+      boxGroup.add(rib);
+    }
+
+    // Identification tag on front of box: "OP-77290 · LOTE BIH-08"
+    const tagCanvas = document.createElement('canvas');
+    tagCanvas.width = 256;
+    tagCanvas.height = 96;
+    const tCtx = tagCanvas.getContext('2d');
+    if (tCtx) {
+      tCtx.fillStyle = '#ffffff';
+      tCtx.fillRect(0, 0, 256, 96);
+      tCtx.fillStyle = '#0f172a';
+      tCtx.font = 'bold 22px monospace';
+      tCtx.fillText('OP-77290 · BIHLER', 12, 32);
+      tCtx.font = 'bold 18px monospace';
+      tCtx.fillText('LOTE L26-BIH08', 12, 58);
+      tCtx.font = '14px monospace';
+      tCtx.fillText('QTD: 24.850 PCS', 12, 80);
+    }
+    const tagTex = new THREE.CanvasTexture(tagCanvas);
+    const tagMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.32, 0.12),
+      new THREE.MeshBasicMaterial({ map: tagTex })
+    );
+    tagMesh.position.set(0, 0.05, 0.34);
+    boxGroup.add(tagMesh);
+
+    // Bed of accumulated stamped parts inside the box
+    const accumulatedBed = new THREE.Mesh(
+      new THREE.BoxGeometry(0.82, 0.18, 0.52),
+      shinyChromeMat
+    );
+    accumulatedBed.position.set(0, -0.06, 0);
+    boxGroup.add(accumulatedBed);
+
+    // Several static decorative clip pieces in the pile
+    for (let c = 0; c < 8; c++) {
+      const pileClip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.035, 0.14), shinyChromeMat);
+      pileClip.position.set(
+        (Math.random() - 0.5) * 0.6,
+        0.04 + Math.random() * 0.03,
+        (Math.random() - 0.5) * 0.35
+      );
+      pileClip.rotation.set(Math.random() * 0.4, Math.random() * Math.PI, Math.random() * 0.3);
+      boxGroup.add(pileClip);
+    }
+
+    group.add(boxGroup);
+
+    // --- 5. SIMULAÇÃO DINÂMICA DE PEÇAS SAINDO DA MÁQUINA E CAINDO NA CAIXA ---
+    // 12 stamped metal pieces (Presilhas de fixação inox em trânsito)
+    const clipGeo = new THREE.BoxGeometry(0.13, 0.035, 0.15);
+    const totalPieces = 12;
+
+    const chuteStart = new THREE.Vector3(0.8, 1.42, 0.25);
+    const chuteLip = new THREE.Vector3(2.65, 0.88, 0.25);
+    const boxDrop = new THREE.Vector3(3.4, 0.36, 0.25);
+
+    for (let i = 0; i < totalPieces; i++) {
+      const pieceMesh = new THREE.Mesh(clipGeo, shinyChromeMat);
+      pieceMesh.castShadow = true;
+      group.add(pieceMesh);
+
+      this.objectsMap.flowingPieces.push({
+        mesh: pieceMesh,
+        phase: i / totalPieces,
+        machineId: machine.id,
+        chuteStart: chuteStart.clone(),
+        chuteLip: chuteLip.clone(),
+        boxDrop: boxDrop.clone()
+      });
+    }
+
+    // =========================================================================
+    // 6. TABLET MOSTRANDO INFORMAÇÕES AO VIVO (OPERATOR HMI TABLET STAND)
+    // =========================================================================
+    // Positioned at local (1.6, 0, 1.8) facing the operator walkway
+    const tabletStandGroup = new THREE.Group();
+    tabletStandGroup.position.set(1.6, 0, 1.8);
+    tabletStandGroup.rotation.y = -Math.PI / 4.5; // Tilted towards the operator corridor
+
+    // Cast iron floor base plate
+    const standBase = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.05, 24), bihlerSlateMat);
+    standBase.position.y = 0.025;
+    tabletStandGroup.add(standBase);
+
+    // Vertical steel column
+    const standPost = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 1.35, 16), metalMat);
+    standPost.position.y = 0.70;
+    tabletStandGroup.add(standPost);
+
+    // Articulated mounting arm tilted 25° upwards
+    const tabletHead = new THREE.Group();
+    tabletHead.position.set(0, 1.42, 0.08);
+    tabletHead.rotation.x = -0.38; // Ergonomic tilt towards viewer
+
+    // Ruggedized tablet casing (Chassi emborrachado preto com cantos amarelos de absorção)
+    const tabletCase = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.40, 0.045), bihlerSlateMat);
+    tabletHead.add(tabletCase);
+
+    // 4 Protective yellow elastomer bumper corners
+    const cornerOffsets = [
+      [-0.27, -0.19],
+      [-0.27, 0.19],
+      [0.27, -0.19],
+      [0.27, 0.19]
+    ];
+    cornerOffsets.forEach(([cx, cy]) => {
+      const corner = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.05), safetyYellowMat);
+      corner.position.set(cx, cy, 0);
+      tabletHead.add(corner);
+    });
+
+    // High-Resolution Live Telemetry Screen Canvas (1024 x 640)
+    const tabletCanvas = document.createElement('canvas');
+    tabletCanvas.width = 1024;
+    tabletCanvas.height = 640;
+    const tabCtx = tabletCanvas.getContext('2d');
+
+    if (tabCtx) {
+      this.drawTabletHMI(tabCtx, machine, 0);
+    }
+
+    const tabletTexture = new THREE.CanvasTexture(tabletCanvas);
+    const tabletScreenMat = new THREE.MeshBasicMaterial({
+      map: tabletTexture
+    });
+
+    const screenMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.50, 0.34), tabletScreenMat);
+    screenMesh.position.set(0, 0, 0.026);
+    screenMesh.userData = { machineId: machine.id, isMachine: true, isTablet: true };
+    tabletHead.add(screenMesh);
+
+    tabletStandGroup.add(tabletHead);
+    group.add(tabletStandGroup);
+
+    // Register tablet screen for dynamic animated oscilloscope updates
+    if (tabCtx) {
+      this.objectsMap.tabletScreens.set(machine.id, {
+        canvas: tabletCanvas,
+        texture: tabletTexture,
+        ctx: tabCtx,
+        machine: machine
+      });
+    }
+  }
+
+  // Draw procedural high-contrast industrial HMI screen on the tablet canvas
+  private drawTabletHMI(ctx: CanvasRenderingContext2D, machine: Machine, timeOffset: number): void {
+    const w = 1024;
+    const h = 640;
+
+    // Background gradient
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+    bgGrad.addColorStop(0, '#0f172a');
+    bgGrad.addColorStop(1, '#020617');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    // Top status header bar
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(0, 0, w, 64);
+
+    // Header title
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 24px "Plus Jakarta Sans", sans-serif';
+    ctx.fillText('SFioT HMI · BIHLER GRM-80 CNC', 24, 42);
+
+    // WiFi / IP beacon
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '16px monospace';
+    ctx.fillText(`IP: ${machine.telemetry.esp32.ip} · 24V OPTO-OK`, w - 340, 42);
+
+    // Status Banner: "EM CICLO AUTOMÁTICO"
+    ctx.fillStyle = '#065f46';
+    ctx.roundRect(24, 80, w - 48, 68, 12);
+    ctx.fill();
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#34d399';
+    ctx.font = 'bold 30px "Plus Jakarta Sans", sans-serif';
+    ctx.fillText('● EM CICLO / PRODUZINDO [AUTO] · 85.7 PPM', 44, 126);
+
+    // Current OP Order Card
+    ctx.fillStyle = '#1e293b';
+    ctx.roundRect(24, 164, w - 48, 86, 12);
+    ctx.fill();
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '18px "Plus Jakarta Sans", sans-serif';
+    ctx.fillText('ORDEM DE PRODUÇÃO ATIVA', 44, 196);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 24px "Plus Jakarta Sans", sans-serif';
+    ctx.fillText(
+      `${machine.currentOrder.orderNumber} · ${machine.currentOrder.productName}`,
+      44,
+      232
+    );
+
+    // KPI Metrics 4-Column Grid
+    const kpis = [
+      {
+        label: 'PEÇAS PRODUZIDAS',
+        val: `${machine.currentOrder.producedQty.toLocaleString('pt-BR')} un`,
+        sub: `Meta: ${machine.currentOrder.plannedQty.toLocaleString('pt-BR')} (82.8%)`,
+        col: '#38bdf8'
+      },
+      {
+        label: 'OEE GERAL',
+        val: `${machine.kpi.oee}%`,
+        sub: `Disp: ${machine.kpi.availability}% | Perf: ${machine.kpi.performance}%`,
+        col: '#10b981'
+      },
+      {
+        label: 'CADÊNCIA / CICLO',
+        val: `${machine.telemetry.piecesPerMinute} PPM`,
+        sub: `Tempo de Ciclo: ${machine.telemetry.cycleTimeSec}s`,
+        col: '#fbbf24'
+      },
+      {
+        label: 'BOBINA DE FITA',
+        val: '84% RESTANTE',
+        sub: 'Aço Inox 301 · Esp: 0.8mm',
+        col: '#a855f7'
+      }
+    ];
+
+    const colW = (w - 48 - 36) / 4;
+    kpis.forEach((kpi, idx) => {
+      const kx = 24 + idx * (colW + 12);
+      ctx.fillStyle = '#1e293b';
+      ctx.roundRect(kx, 266, colW, 140, 12);
+      ctx.fill();
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = 'bold 15px "Plus Jakarta Sans", sans-serif';
+      ctx.fillText(kpi.label, kx + 16, 296);
+
+      ctx.fillStyle = kpi.col;
+      ctx.font = 'bold 28px "Plus Jakarta Sans", sans-serif';
+      ctx.fillText(kpi.val, kx + 16, 340);
+
+      ctx.fillStyle = '#64748b';
+      ctx.font = '13px monospace';
+      ctx.fillText(kpi.sub, kx + 16, 380);
+    });
+
+    // Bottom Telemetry Live Pulse Oscilloscope (Sensor óptico do ciclo de estampagem)
+    ctx.fillStyle = '#090d16';
+    ctx.roundRect(24, 424, w - 48, 192, 12);
+    ctx.fill();
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = '#06b6d4';
+    ctx.font = 'bold 16px monospace';
+    ctx.fillText('ESP32 GPIO-24V · PULSOS DO SENSOR ÓPTICO DE PEÇA & FITA DE AÇO', 44, 456);
+
+    // Draw live waveform trace
+    ctx.beginPath();
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 3;
+    const waveStartX = 44;
+    const waveEndX = w - 44;
+    const waveY = 540;
+
+    for (let x = waveStartX; x < waveEndX; x += 4) {
+      const relX = (x - waveStartX) / 40;
+      // Stamping cycle pulse spike waveform
+      const sine = Math.sin(relX * 1.8 + timeOffset * 4);
+      const spike = Math.pow(Math.max(0, Math.sin(relX * 1.8 + timeOffset * 4)), 8) * 45;
+      const y = waveY - sine * 14 - spike;
+      if (x === waveStartX) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+    ctx.stroke();
+
+    // Secondary line: Pressure & Temperature
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '14px monospace';
+    ctx.fillText(
+      `TEMP: ${machine.telemetry.temperature}°C · VIB: ${machine.telemetry.vibration} mm/s · PRESSÃO: ${machine.telemetry.pressure} bar · PEÇAS NA CAIXA: +12/min`,
+      44,
+      596
+    );
   }
 
   // --- MODEL: BIHLER COMBINADA (MULTI-SLIDE RADIAL) ---
@@ -916,6 +1673,49 @@ export class FactorySceneBuilder {
         part.object.position.z = part.basePos.z + offset;
       }
     });
+
+    // Continuous Flowing Parts Animation (Peças saindo da estamparia pela calha e caindo na caixa)
+    this.objectsMap.flowingPieces.forEach((piece) => {
+      const status = machineStatuses.get(piece.machineId);
+      if (status !== 'running') return;
+
+      // Speed cadence corresponding to 85.7 PPM
+      piece.phase = (piece.phase + 0.016) % 1.0;
+
+      const p = piece.phase;
+      if (p < 0.62) {
+        // Sliding down the stainless steel chute
+        const t = p / 0.62;
+        piece.mesh.position.x = piece.chuteStart.x + (piece.chuteLip.x - piece.chuteStart.x) * t;
+        piece.mesh.position.y = piece.chuteStart.y + (piece.chuteLip.y - piece.chuteStart.y) * t;
+        piece.mesh.position.z = piece.chuteStart.z + (piece.chuteLip.z - piece.chuteStart.z) * t;
+        piece.mesh.rotation.z = -0.32;
+        piece.mesh.rotation.x = 0;
+        piece.mesh.rotation.y = 0;
+      } else if (p < 0.94) {
+        // Free fall parabolic trajectory into the collection box
+        const t = (p - 0.62) / 0.32;
+        piece.mesh.position.x = piece.chuteLip.x + (piece.boxDrop.x - piece.chuteLip.x) * t;
+        // Gravity parabolic drop: starts at lip and accelerates downward into box
+        piece.mesh.position.y = piece.chuteLip.y + (piece.boxDrop.y - piece.chuteLip.y) * (t * t);
+        piece.mesh.position.z = piece.chuteLip.z + (piece.boxDrop.z - piece.chuteLip.z) * t + Math.sin(t * Math.PI) * 0.04;
+        piece.mesh.rotation.x += 0.22;
+        piece.mesh.rotation.z += 0.26;
+      } else {
+        // Settling into the collection pile before resetting to chute top
+        piece.mesh.position.x = piece.boxDrop.x + Math.sin(p * 50) * 0.08;
+        piece.mesh.position.y = piece.boxDrop.y;
+        piece.mesh.position.z = piece.boxDrop.z + Math.cos(p * 50) * 0.08;
+      }
+    });
+
+    // Update live HMI tablet screen waveform animation (every few frames)
+    if (Math.floor(time * 30) % 2 === 0) {
+      this.objectsMap.tabletScreens.forEach((screen) => {
+        this.drawTabletHMI(screen.ctx, screen.machine, time);
+        screen.texture.needsUpdate = true;
+      });
+    }
   }
 
   // --- ROBÔ INSPETOR HUMANOIDE (AVATAR DO OPERADOR) ---

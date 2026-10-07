@@ -6,7 +6,8 @@ export type SectorId =
   | 'rosca-sem-fim'
   | 'zincagem'
   | 'usinagem'
-  | 'ferramentaria';
+  | 'ferramentaria'
+  | 'bihler-producao';
 
 export interface Sector {
   id: SectorId;
@@ -30,7 +31,8 @@ export type MachineCategory =
   | 'laminadora-rosca'
   | 'linha-zincagem'
   | 'cnc-usinagem'
-  | 'ferramentaria-retifica';
+  | 'ferramentaria-retifica'
+  | 'bihler-linha-pecas';
 
 export interface MachineTelemetry {
   temperature: number; // °C

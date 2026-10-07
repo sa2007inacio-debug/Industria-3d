@@ -33,7 +33,7 @@ export const SectorsGridView: React.FC<SectorsGridViewProps> = ({
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Setores da Fábrica</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Visão consolidada das 6 áreas produtivas, distribuição de ativos e indicadores de eficiência
+            Visão consolidada das 7 áreas produtivas e linhas automatizadas, distribuição de ativos e indicadores de eficiência
           </p>
         </div>
         <button
