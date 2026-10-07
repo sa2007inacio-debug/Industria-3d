@@ -1,0 +1,6 @@
+{
+  "name": "SFioT - Fábrica Digital & Digital Twin IIoT",
+  "description": "Plataforma industrial de Digital Twin 3D, IIoT, telemetria ESP32, HMI e monitoramento em tempo real de máquinas e OEE para fábrica digital.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
